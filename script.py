@@ -1,13 +1,14 @@
 from parse import Handler
 from bs4 import BeautifulSoup
 import requests
+import re
 
 
-def forceint(cell):
-    part = cell.strip(' 0').strip('.') # .replace(',', '.')
-    if not part: part = '0'
-    assert part.isdecimal()
-    return int(part)
+def intfloat(string, mode=0):
+    try:
+        return int(float(string))
+    except Exception as e:
+        return mode
 
 def get(url):
     response = requests.get(url)
@@ -15,44 +16,53 @@ def get(url):
     raw = response.text.encode(response.encoding).decode()
     return BeautifulSoup(raw, "html.parser")
 
-def pretty(data, metadata):
-    out = f'{metadata["time"]}\n'\
-    f'{metadata["title"]}\n'\
-    f'Бюджетных мест: {metadata["total"]}\n'\
+def pretty(data):
+    out = f'{data["title"]}\n'\
+    f'Бюджетных мест: {data["total"]}\n'\
     f'Из них БВИ: {data["bvi"]}\n'\
-    f'Согласий: {data["sgl"]}\n\n'\
-    f'Свободных: {metadata["total"]-data["bvi"]-data["sgl"]}\n'\
-    f'Заявлений: {data["ege"]}'
+    f'Согласий: {data["sgl"]}\n'\
+    f'Свободных: {data["total"]-data["bvi"]-data["sgl"]}\n'\
+    f'Заявлений: {data["ege"]}\n'\
+    f'От {data["time"]}'
     return out
 
 
-def spbgu(page):
-    score = {key: 0 for key in ('lrcfpd', )[page]}
-    url = 'https://cabinet.spbu.ru/Lists/1k_EntryLists/list_{}.html'.format(
-        (
-            '',
-        )[page]
-    )
-
+def _spbu(uid, url):
     soup = get(url)
 
-    metadata = {}
-    p = soup.select('p')
-    metadata['time'] = p[1].text.split()[-1]
-    p = p[0].text.split('\n')
-    metadata['title'] = p[4].split(':')[1].strip()
-    metadata['total'] = forceint(p[8].split()[-1])
-    yield metadata, None
+    data = {}
+    part = soup.select('p')
+    data['time'] = part[1].text.split()[-1]
+    part = part[0].text.split('\n')
+    data['title'] = re.search(r'\d (.+)', part[4])[1]
+    data['total'] = int(part[8].split()[-1])
+
+    for line in soup.select('tr')[1:]:
+        if line.select('td')[1].text == uid:
+            cells = [cell.text for cell in line.select('td')]
+            scores = []
+            while (score:=intfloat(cells[6+len(scores)], mode='')) != '':
+                scores.append(score)
+            break
+    yield data, scores
 
     data = {}
-    for line in soup.find_all('tr')[1:]:
-        cells = [cell.text for cell in line.find_all('td')]
-        data['bvi'] = (cells[2] == 'Без ВИ')
-        data['sgl'] = (cells[10] == 'Да')
-        if data['bvi']:
-            assert data['sgl']
-            yield data, None
+    count = len(scores)
+    for line in soup.select('tr')[1:]:
+        cells = [cell.text for cell in line.select('td')]
+        if cells[1] == uid:
+            continue
+        data['bvi'] = cells[2] == 'Без ВИ'
+        data['sgl'] = cells[10] == 'Да'
+        if not data['bvi']:
+            scores = map(intfloat, cells[6:6+count])
         else:
-            for i, key in enumerate(score):
-                score[key] = forceint(cells[i+6])
-            yield data, score
+            assert data['sgl']
+            scores = None
+        yield data, scores
+
+
+url = 'https://cabinet.spbu.ru/Lists/1k_EntryLists/list_.html'
+spbu = Handler(_spbu, '___-___-___ __')
+out = pretty(spbu(url))
+print(out)

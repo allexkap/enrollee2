@@ -1,19 +1,18 @@
 class Handler:
 
 
-    def __init__(self, parser, **scores):
+    def __init__(self, parser, uid):
         self.parser = parser
-        self.scores = scores
+        self.uid = uid
 
 
-    def compare(self, other):
+    def compare(self, scores):
         total = 0
         order = True
         equality = True
 
-        for subject in other:
-            total += self.scores[subject]
-            total -= other[subject]
+        for this, other in zip(self.scores, scores):
+            total += this - other
             if order and total < 0:
                 order = False
             if equality and total != 0:
@@ -22,17 +21,19 @@ class Handler:
         return total > 0 or order and not equality
 
 
-    def __call__(self, page):
-        self.data = {'bvi': 0, 'ege': 0, 'sgl': 0}
-        self.metadata = None
-
-        for data, score in self.parser(page):
+    def __call__(self, url):
+        for data, scores in self.parser(self.uid, url):
             if 'total' in data:
-                self.metadata = data
+                self.data = data
+                self.scores = scores
+                self.data['bvi'] = 0
+                self.data['sgl'] = 0
+                self.data['ege'] = 0
             elif data['bvi']:
                 self.data['bvi'] += 1
-            elif not self.compare(score):
+            elif not self.compare(scores):
                 if data['sgl']:
                     self.data['sgl'] += 1
                 else:
                     self.data['ege'] += 1
+        return self.data
