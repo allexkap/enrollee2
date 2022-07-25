@@ -4,7 +4,6 @@ class Handler:
     def __init__(self, parser, **scores):
         self.parser = parser
         self.scores = scores
-        self.page = 0
 
 
     def compare(self, other):
@@ -23,11 +22,11 @@ class Handler:
         return total > 0 or order and not equality
 
 
-    def __call__(self):
+    def __call__(self, page):
         self.data = {'bvi': 0, 'ege': 0, 'sgl': 0}
         self.metadata = None
 
-        for data, score in self.parser(self.page):
+        for data, score in self.parser(page):
             if 'total' in data:
                 self.metadata = data
             elif data['bvi']:
