@@ -26,12 +26,9 @@ class Handler:
             if 'total' in data:
                 self.data = data
                 self.scores = scores
-                self.data['bvi'] = 0
                 self.data['sgl'] = 0
                 self.data['ege'] = 0
-            elif data['bvi']:
-                self.data['bvi'] += 1
-            elif not self.compare(scores):
+            elif data['bvi'] or not self.compare(scores):
                 if data['sgl']:
                     self.data['sgl'] += 1
                 else:

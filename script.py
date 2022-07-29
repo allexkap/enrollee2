@@ -6,25 +6,16 @@ import re
 
 def intfloat(string, mode=0):
     try:
-        return int(float(string))
+        return int(float(string.replace(',', '.')))
     except Exception as e:
         return mode
 
 def get(url):
-    response = requests.get(url)
+    response = requests.get(url, verify=False)
     assert response.status_code == 200
     raw = response.text.encode(response.encoding).decode()
     return BeautifulSoup(raw, "html.parser")
 
-def pretty(data):
-    out = f'{data["title"]}\n'\
-    f'Бюджетных мест: {data["total"]}\n'\
-    f'Из них БВИ: {data["bvi"]}\n'\
-    f'Согласий: {data["sgl"]}\n'\
-    f'Свободных: {data["total"]-data["bvi"]-data["sgl"]}\n'\
-    f'Заявлений: {data["ege"]}\n'\
-    f'От {data["time"]}'
-    return out
 
 
 def _spbu(uid, url):
@@ -32,37 +23,88 @@ def _spbu(uid, url):
 
     data = {}
     part = soup.select('p')
-    data['time'] = part[1].text.split()[-1]
-    part = part[0].text.split('\n')
-    data['title'] = re.search(r'\d (.+)', part[4])[1]
-    data['total'] = int(part[8].split()[-1])
+    assert len(part) < 4    # Квоты не учитываются
+    data['time'] = part[0].text.split()[-1]
+    data['title'] = re.search(r'\d ([\w ]+)', part[1].text)[1]
+    data['total'] = int(re.search(r'\d+', part[2].text)[0])
 
     for line in soup.select('tr')[1:]:
-        if line.select('td')[1].text == uid:
+        if uid in line.select('td')[1].text:
             cells = [cell.text for cell in line.select('td')]
             scores = []
-            while (score:=intfloat(cells[6+len(scores)], mode='')) != '':
+            while (score:=intfloat(cells[len(scores)+3], mode='')) != '':
                 scores.append(score)
             break
+    else:
+        raise ValueError
     yield data, scores
 
     data = {}
     count = len(scores)
     for line in soup.select('tr')[1:]:
         cells = [cell.text for cell in line.select('td')]
-        if cells[1] == uid:
+        if uid in cells[1]:
             continue
-        data['bvi'] = cells[2] == 'Без ВИ'
-        data['sgl'] = cells[10] == 'Да'
+        data['bvi'] = 'Без ВИ' in [count+4]
+        data['sgl'] = 'Да' in cells[count+5]
         if not data['bvi']:
-            scores = map(intfloat, cells[6:6+count])
+            scores = [*map(intfloat, cells[3:3+count])]
         else:
-            assert data['sgl']
             scores = None
         yield data, scores
 
 
-url = 'https://cabinet.spbu.ru/Lists/1k_EntryLists/list_.html'
-spbu = Handler(_spbu, '___-___-___ __')
-out = pretty(spbu(url))
-print(out)
+def _spbstu(uid, url):
+    soup = get(url)
+
+    data = {}
+    data['title'] = re.search(r'\d ([\w ]+)', soup.h2.text)[1]
+    data['total'] = 0 # todo
+    data['time'] = soup.footer.text.split()[-1][:-3]
+    yield data, (0, 0, 0, 0) # todo
+
+    data = {}
+    for line in soup.select('tr')[1:]:
+        cells = [cell.text for cell in line.select('td')]
+        if uid in cells[1]:
+            continue
+        data['bvi'] = '✓' in cells[0] # todo
+        data['sgl'] = '✓' in cells[0] # todo
+        if not data['bvi']:
+            scores = [*map(intfloat, cells[4:8])]
+        else:
+            scores = None
+        yield data, scores
+
+
+def _itmo(uid, url):
+    with open(url, errors='ignore') as file:
+        soup = BeautifulSoup(file.read(), "html.parser")
+
+    data = {}
+    table, = soup.select('.RatingPage_rating__1ACLE')
+    it = table.children
+    data['title'] = re.search(r'\d ([\w ]+)', next(it).text)[1]
+    text = next(it).text
+    data['total'] = int(re.search(r': (\d+)', text)[1])
+    data['time'] = re.search(r' (\d{2}:\d{2}):\d{2}', text)[1]
+    yield data, (0, 0, 0, 0) # todo
+
+    data = {}
+    try:
+        while True:
+            data['bvi'] = next(it).text != 'Общий конкурс' # todo
+            for line in next(it).children:
+                cells = line.select('span')
+                if uid in line.select('p')[1].text:
+                    continue
+                if data['bvi']:
+                    scores = None
+                    data['sgl'] = cells[2].text[-2:] == 'да'
+                else:
+                    scores = [intfloat(cells[i].text) for i in (0, 0, 0, 0)] # todo
+                    data['sgl'] = cells[6].text[-2:] == 'да'
+                yield data, scores
+
+    except StopIteration:
+        pass
